@@ -187,7 +187,7 @@ nav button.breve{opacity:.45;cursor:not-allowed;position:relative}nav button.bre
 <div id="modal"></div>
 <script>
 // ===== PARTE 2 — DADOS E CÁLCULOS =====
-const APP_VERSION = 'v4.1', APP_BUILD = '03/11/2026'; // sobe a cada alteração do app
+const APP_VERSION = 'v4.2', APP_BUILD = '03/11/2026'; // sobe a cada alteração do app
 const KEY = 'financas_app_v1';
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const MES3 = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
@@ -879,6 +879,20 @@ function telaContas() {
   <h2>Editar faturas</h2>
   ${editor('faturas', [['nome', 'Nome', 't'], ['origem', 'Origem (extrato)', 't'], ['venc', 'Vencimento', 'd'], ['valorFixo', 'Valor fixo (opcional)', 'n']])}`;
 }
+function setValorFatura(origem, v) {
+  const f = S.faturas.find(x => x.origem === origem); if (!f) return;
+  f.valorFixo = String(v).trim() === '' ? '' : r2(num(v)); salvar(); render();
+}
+function criarFaturasFuturas(n) {
+  const h = hoje(); let criadas = 0;
+  for (let i = 0; i <= n; i++) {
+    const d = new Date(h.getFullYear(), h.getMonth() + i, 1), venc = ISO(new Date(d.getFullYear(), d.getMonth(), S.cfg.venc || 10));
+    if (S.faturas.some(x => x.venc === venc)) continue;
+    const usado = S.faturas.some(x => x.origem === 'Extrato ' + MESES[d.getMonth()]), nome = MESES[d.getMonth()] + (usado ? ' ' + d.getFullYear() : '');
+    S.faturas.push({ nome, valorFixo: '', origem: 'Extrato ' + nome, venc }); criadas++;
+  }
+  salvar(); render(); toast(criadas ? criadas + ' fatura(s) criada(s)' : 'Já existem faturas para esse período');
+}
 function telaContasEnxuto() {
   const c = cartaoResumo(), fs = faturasCalc(), prox = fs.filter(f => f.aberto > 0)[0], lista = fs.filter(f => f.valor > 0 || f.aberto > 0);
   $('tela').innerHTML = `
@@ -892,8 +906,10 @@ function telaContasEnxuto() {
   ${editor('contas', [['nome', 'Conta', 't'], ['saldoIni', 'Saldo inicial', 'n']], it => [['Saldo atual', it.nome ? `<b class="${cor(saldoConta(it.nome))}">${brl(saldoConta(it.nome))}</b>` : '']])}
   <p class="dica">Saldo atual = saldo inicial + todos os lançamentos da conta.</p>
   <h2>Faturas do cartão</h2>
-  <div class="rolar"><table class="tabela"><tr><th>Fatura</th><th class="n">Valor</th><th class="n">Vencimento</th><th class="n">Em aberto</th><th>Situação</th><th></th></tr>
-  ${lista.map(f => `<tr><td>${esc(f.nome)}</td><td class="n">${brl(f.valor)}</td><td class="n">${dataBR(f.venc)}</td><td class="n">${brl(f.aberto)}</td><td>${tag(f.sit)}</td><td>${f.aberto > 0 ? `<button class="bt" style="padding:6px 10px" onclick="pagarFatura('${f.origem}')">Pagar</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="6">Nenhuma fatura ainda. Importe o CSV do cartão em Lançamentos.</td></tr>'}</table></div>`;
+  <p class="dica">Em <b>Valor do banco</b>, digite o total que o banco mostra para a fatura. Deixe vazio para somar os lançamentos.</p>
+  <div class="rolar"><table class="tabela"><tr><th>Fatura</th><th class="n">Valor</th><th>Valor do banco</th><th class="n">Vencimento</th><th class="n">Em aberto</th><th>Situação</th><th></th></tr>
+  ${fs.map(f => `<tr><td>${esc(f.nome)}</td><td class="n">${brl(f.valor)}</td><td><input type="number" step="0.01" style="width:110px" value="${f.valorFixo !== '' && f.valorFixo != null ? f.valorFixo : ''}" placeholder="somar lançamentos" onchange="setValorFatura('${esc(f.origem)}',this.value)"></td><td class="n">${dataBR(f.venc)}</td><td class="n">${brl(f.aberto)}</td><td>${tag(f.sit)}</td><td>${f.aberto > 0 ? `<button class="bt" style="padding:6px 10px" onclick="pagarFatura('${f.origem}')">Pagar</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="7">Nenhuma fatura ainda. Importe o CSV do cartão em Lançamentos.</td></tr>'}</table></div>
+  <div class="linha-bts"><button class="bt sec" onclick="criarFaturasFuturas(12)">+ Criar faturas dos próximos 12 meses</button></div>`;
 }
 function telaReceitasEnxuto() {
   const ativas = S.receitas.filter(r => r.desc && r.ativa !== 'Não'), total = ativas.reduce((a, r) => a + receitaMensal(r), 0);
