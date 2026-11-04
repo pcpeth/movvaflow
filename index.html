@@ -150,7 +150,7 @@ main>h2{color:#edf4ff}nav{background:#0e192df5;border-color:#ffffff12}nav button
 <div id="modal"></div>
 <script>
 // ===== PARTE 2 — DADOS E CÁLCULOS =====
-const APP_VERSION = 'v3.4', APP_BUILD = '28/10/2026'; // sobe a cada alteração do app
+const APP_VERSION = 'v3.5', APP_BUILD = '03/11/2026'; // sobe a cada alteração do app
 const KEY = 'financas_app_v1';
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const MES3 = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
@@ -173,7 +173,7 @@ function carregar() {
   try { const t = localStorage.getItem(KEY); if (t) return Object.assign(estadoVazio(), JSON.parse(t)); } catch (e) {}
   return estadoVazio();
 }
-function salvar() { S.atualizado = new Date().toISOString(); localStorage.setItem(KEY, JSON.stringify(S)); }
+function salvar() { S.atualizado = new Date().toISOString(); localStorage.setItem(KEY, JSON.stringify(S)); if (typeof agendarSync === 'function') agendarSync(); }
 
 // ---------- utilidades ----------
 const num = v => { if (v === '' || v == null) return 0; const n = parseFloat(String(v).replace(',', '.')); return isNaN(n) ? 0 : n; };
@@ -502,7 +502,7 @@ function renderComFoco() {
 }
 function renderAgora() {
   $('nav').innerHTML = TELAS.map(([k, i, n]) => `<button aria-current="${k === telaAtual ? 'page' : 'false'}" class="${k === telaAtual ? 'ativo' : ''}" onclick="ir('${k}')"><span>${i}</span>${n}</button>`).join('');
-  $('atualizado').textContent = APP_VERSION + ' · ' + (S.atualizado ? 'Salvo em ' + new Date(S.atualizado).toLocaleString('pt-BR') : 'Sem dados ainda');
+  $('atualizado').textContent = textoRodape();
   document.title = 'Minhas Finanças ' + APP_VERSION;
   if (!S.lanc.length && !S.contas.length && telaAtual !== 'config' && telaAtual !== 'metas') {
     $('tela').innerHTML = `<div class="card"><h2>Bem-vindo!</h2><p>Ainda não há dados. Vá em <b>Configurações › Importar da planilha</b> e cole o conteúdo da aba "Exportar App".</p><button class="bt" onclick="ir('config')">Ir para Configurações</button></div>`;
@@ -1320,6 +1320,177 @@ function blocoMetasResumo() {
   return `<h2>Metas</h2><div class="card">${linhas.map(l => `<div class="barra"><div class="nome" style="width:170px">${esc(l.n)}</div><div class="trilho"><div class="enche ${l.st === 'ESTOURADO' ? 'acima' : ''}" style="width:${l.p * 100}%"></div></div><div class="v" style="width:150px">${l.v}</div></div>`).join('')}<div class="linha-bts"><button class="bt sec" onclick="ir('metas')">Ver metas</button></div></div>`;
 }
 
+// ---------- SINCRONIZAÇÃO (Google Drive, pasta privada do app) ----------
+// Os dados ficam num único arquivo na pasta "appDataFolder" do Drive: só este app enxerga, não aparece no seu Drive.
+const SYNC_KEY = 'financas_sync_v1';
+const GOOGLE_CLIENT_ID = ''; // opcional: preencha para não precisar colar o Client ID em cada aparelho
+const SYNC_ARQ = 'movvaflow-dados.json';
+const SYNC_ROT = { ok: 'sincronizado', trab: 'sincronizando…', pend: 'alterações pendentes', erro: 'erro ao sincronizar', auth: 'toque para sincronizar', off: '' };
+let SY = lerSync(), syncEstado = 'off', syncMsg = '', syncTimer = null, syncOcupado = false, syncRepetir = false;
+let syncToken = null, syncTokenAte = 0, syncTentativa = 0, syncPend = null, syncConflitoAberto = false;
+
+function lerSync() {
+  const v = { clientId: '', conectado: false, fileId: '', base: '', ultima: '' };
+  try { return Object.assign(v, JSON.parse(localStorage.getItem(SYNC_KEY) || '{}')); } catch (e) { return v; }
+}
+function gravarSync() { try { localStorage.setItem(SYNC_KEY, JSON.stringify(SY)); } catch (e) {} }
+const clientId = () => (SY.clientId || GOOGLE_CLIENT_ID || '').trim();
+const tokenValido = () => !!syncToken && Date.now() < syncTokenAte - 60000;
+function syncRotulo() { return SY.conectado && SYNC_ROT[syncEstado] ? ' · ☁ ' + SYNC_ROT[syncEstado] : ''; }
+function textoRodape() { return APP_VERSION + ' · ' + (S.atualizado ? 'Salvo em ' + new Date(S.atualizado).toLocaleString('pt-BR') : 'Sem dados ainda') + syncRotulo(); }
+function syncEstadoSet(e, msg) {
+  syncEstado = e; syncMsg = msg || '';
+  const el = $('atualizado'); if (el) el.textContent = textoRodape();
+  const st = $('syncStatus'); if (st) st.innerHTML = syncStatusHTML();
+}
+function syncStatusHTML() {
+  if (!SY.conectado) return 'Desconectado';
+  const quando = SY.ultima ? ' · última: ' + new Date(SY.ultima).toLocaleString('pt-BR') : '';
+  return '<b>' + esc(SYNC_ROT[syncEstado] || 'conectado') + '</b>' + esc(quando) + (syncMsg ? '<br><span class="neg">' + esc(syncMsg) + '</span>' : '');
+}
+
+function carregarGIS() {
+  return new Promise((res, rej) => {
+    if (window.google && google.accounts && google.accounts.oauth2) return res();
+    const s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.async = true;
+    s.onload = () => res(); s.onerror = () => rej(new Error('Não consegui carregar o login do Google. Verifique a internet.'));
+    document.head.appendChild(s);
+  });
+}
+function pedirToken() {
+  if (tokenValido()) return Promise.resolve(syncToken);
+  syncTentativa = Date.now();
+  return carregarGIS().then(() => new Promise((res, rej) => {
+    const tc = google.accounts.oauth2.initTokenClient({
+      client_id: clientId(), scope: 'https://www.googleapis.com/auth/drive.appdata',
+      callback: r => { if (r.error) return rej(Object.assign(new Error(r.error_description || r.error), { auth: r.error !== 'invalid_client' })); syncToken = r.access_token; syncTokenAte = Date.now() + (r.expires_in || 3600) * 1000; res(syncToken); },
+      error_callback: e => rej(Object.assign(new Error('Login do Google não concluído (' + (e && e.type || 'bloqueado') + ')'), { auth: true }))
+    });
+    tc.requestAccessToken();
+  }));
+}
+async function drive(path, opts = {}) {
+  const t = await pedirToken();
+  const r = await fetch('https://www.googleapis.com' + path, { ...opts, headers: { Authorization: 'Bearer ' + t, ...(opts.headers || {}) } });
+  if (r.status === 401) { syncToken = null; throw Object.assign(new Error('Sessão do Google expirou'), { auth: true }); }
+  if (!r.ok) throw Object.assign(new Error('Google Drive respondeu ' + r.status), { http: r.status });
+  return r;
+}
+async function acharArquivo() {
+  if (SY.fileId) return SY.fileId;
+  const r = await drive('/drive/v3/files?spaces=appDataFolder&q=' + encodeURIComponent("name='" + SYNC_ARQ + "'") + '&fields=files(id,modifiedTime)&pageSize=10');
+  const f = ((await r.json()).files || []).sort((a, b) => a.modifiedTime < b.modifiedTime ? 1 : -1)[0];
+  if (f) { SY.fileId = f.id; gravarSync(); return f.id; }
+  return '';
+}
+const lerNuvem = async id => (await drive('/drive/v3/files/' + id + '?alt=media')).json();
+async function gravarNuvem(id) {
+  const corpo = JSON.stringify({ ...S, versaoApp: APP_VERSION });
+  if (id) { await drive('/upload/drive/v3/files/' + id + '?uploadType=media', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: corpo }); return id; }
+  const b = 'mf' + uid(), meta = JSON.stringify({ name: SYNC_ARQ, parents: ['appDataFolder'] });
+  const body = '--' + b + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + meta + '\r\n--' + b + '\r\nContent-Type: application/json\r\n\r\n' + corpo + '\r\n--' + b + '--';
+  const r = await drive('/upload/drive/v3/files?uploadType=multipart&fields=id', { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + b }, body });
+  SY.fileId = (await r.json()).id; gravarSync(); return SY.fileId;
+}
+function aplicarNuvem(nuvem) {
+  const n = Object.assign(estadoVazio(), nuvem); delete n.versaoApp;
+  S = n; localStorage.setItem(KEY, JSON.stringify(S)); // direto: salvar() trocaria o carimbo de data
+  SY.base = S.atualizado; gravarSync(); renderComFoco();
+}
+const resumoDados = d => (d.lanc || []).length + ' lançamentos, ' + (d.contas || []).length + ' contas, ' + (d.metas || []).length + ' metas';
+
+async function syncAgora() {
+  if (!SY.conectado || !clientId()) return;
+  if (syncOcupado) { syncRepetir = true; return; }
+  if (syncConflitoAberto) return;
+  if (!navigator.onLine) return syncEstadoSet('pend', 'Sem internet; sincroniza quando voltar');
+  syncOcupado = true; syncEstadoSet('trab');
+  try {
+    let id = await acharArquivo(), nuvem = null;
+    if (id) { try { nuvem = await lerNuvem(id); } catch (e) { if (e.http === 404) { SY.fileId = ''; gravarSync(); id = ''; } else throw e; } }
+    const loc = S.atualizado || '', rem = (nuvem && nuvem.atualizado) || '', base = SY.base || '';
+    if (!nuvem) { if (loc) { await gravarNuvem(''); SY.base = loc; } }
+    else if (!loc) aplicarNuvem(nuvem);                       // aparelho vazio nunca sobrescreve a nuvem
+    else if (loc === rem) SY.base = loc;
+    else if (loc !== base && rem !== base) { syncPend = nuvem; syncEstadoSet('pend'); abrirConflito(); return; }
+    else if (rem !== base) aplicarNuvem(nuvem);
+    else { await gravarNuvem(id); SY.base = loc; }
+    SY.ultima = new Date().toISOString(); gravarSync(); syncEstadoSet('ok');
+  } catch (e) {
+    if (e.auth) syncEstadoSet('auth', e.message); else syncEstadoSet('erro', e.message);
+  } finally {
+    syncOcupado = false;
+    if (syncRepetir) { syncRepetir = false; agendarSync(); }
+  }
+}
+function agendarSync() {
+  if (!SY.conectado || !clientId()) return;
+  syncEstadoSet('pend'); clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => syncAgora(), 3000);
+}
+
+// ---------- conflito: os dois lados mudaram ----------
+function abrirConflito() {
+  syncConflitoAberto = true;
+  const quando = d => d.atualizado ? new Date(d.atualizado).toLocaleString('pt-BR') : 'sem data';
+  $('modal').innerHTML = `<div class="modal"><div class="caixa" data-nosync>
+    <h2>Dados diferentes neste aparelho e na nuvem</h2>
+    <p class="dica">Os dois foram alterados desde a última sincronização. Escolha qual manter; o outro será descartado.</p>
+    <div class="card"><b>Este aparelho</b><br>${resumoDados(S)}<br>salvo em ${quando(S)}<div class="linha-bts"><button class="bt sec" onclick="baixarJSON(S,'financas-deste-aparelho.json')">Baixar cópia</button><button class="bt" onclick="resolverConflito('local')">Manter este aparelho</button></div></div>
+    <div class="card"><b>Nuvem (Google Drive)</b><br>${resumoDados(syncPend)}<br>salvo em ${quando(syncPend)}<div class="linha-bts"><button class="bt sec" onclick="baixarJSON(syncPend,'financas-da-nuvem.json')">Baixar cópia</button><button class="bt" onclick="resolverConflito('nuvem')">Usar a nuvem</button></div></div>
+    <div class="linha-bts"><button class="bt sec" onclick="resolverConflito('depois')">Decidir depois</button></div>
+  </div></div>`;
+}
+async function resolverConflito(qual) {
+  const nuvem = syncPend; syncConflitoAberto = false; fecharModal();
+  if (qual === 'depois') { syncEstadoSet('pend', 'Conflito pendente: abra Configurações › Sincronização'); return; }
+  syncPend = null;
+  if (qual === 'nuvem') { aplicarNuvem(nuvem); SY.ultima = new Date().toISOString(); gravarSync(); syncEstadoSet('ok'); return; }
+  try { syncOcupado = true; syncEstadoSet('trab'); await gravarNuvem(SY.fileId || ''); SY.base = S.atualizado; SY.ultima = new Date().toISOString(); gravarSync(); syncEstadoSet('ok'); }
+  catch (e) { syncEstadoSet(e.auth ? 'auth' : 'erro', e.message); } finally { syncOcupado = false; }
+}
+function baixarJSON(obj, nome) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(obj, null, 1)], { type: 'application/json' })); a.download = nome; a.click();
+}
+
+// ---------- tela de configuração ----------
+function cardSync() {
+  const passos = `<details data-nosync><summary>Como obter o Client ID (uma vez só, ~5 min)</summary><ol class="dica">
+    <li>Acesse <b>console.cloud.google.com</b> e crie um projeto (ex.: MovvaFlow).</li>
+    <li><b>APIs e serviços › Biblioteca</b>: ative <b>Google Drive API</b>.</li>
+    <li><b>Google Auth Platform › Branding</b>: nome do app, seu e-mail, público <b>Externo</b>. Em <b>Acesso a dados</b>, adicione o escopo <code>drive.appdata</code>. Em <b>Público</b>, clique em <b>Publicar app</b> (sem isso o login expira em 7 dias).</li>
+    <li><b>Clientes › Criar cliente › Aplicativo da Web</b>. Em <b>Origens JavaScript autorizadas</b> coloque <code>https://pcpeth.github.io</code> (sem barra no final).</li>
+    <li>Copie o <b>ID do cliente</b> (termina em .apps.googleusercontent.com) e cole abaixo.</li></ol></details>`;
+  let corpo;
+  if (SY.conectado) corpo = `<p class="dica" id="syncStatus">${syncStatusHTML()}</p>
+    <div class="linha-bts"><button class="bt" data-nosync onclick="syncAgora()">Sincronizar agora</button><button class="bt sec" data-nosync onclick="desconectarSync()">Desconectar</button></div>`;
+  else corpo = `${passos}<label>Client ID do Google<input id="syncCid" data-nosync value="${esc(clientId())}" placeholder="123456-abc.apps.googleusercontent.com"></label>
+    <div class="linha-bts"><button class="bt" data-nosync onclick="conectarSync()">Conectar ao Google Drive</button></div>`;
+  return `<h2>Sincronização (Google Drive)</h2><div class="card" id="syncCard"><p class="dica">Mantém os mesmos dados no celular e no computador, sem exportar backup. O arquivo fica numa pasta privada do app no seu Drive, que só o MovvaFlow acessa. Em cada aparelho: conecte uma vez com a mesma conta Google.</p>${corpo}</div>`;
+}
+async function conectarSync() {
+  const v = ($('syncCid').value || '').trim();
+  if (v) SY.clientId = v;
+  if (!clientId() || !/\.apps\.googleusercontent\.com$/.test(clientId())) return alert('Cole o Client ID completo (termina em .apps.googleusercontent.com).');
+  SY.conectado = true; SY.base = ''; SY.fileId = ''; gravarSync(); render();
+  await syncAgora(); render();
+}
+function desconectarSync() {
+  if (!confirm('Desconectar? Os dados deste aparelho e da nuvem são mantidos; só para de sincronizar.')) return;
+  try { if (syncToken && window.google) google.accounts.oauth2.revoke(syncToken, () => {}); } catch (e) {}
+  SY.conectado = false; SY.base = ''; SY.fileId = ''; syncToken = null; gravarSync(); syncEstadoSet('off'); render();
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && SY.conectado && tokenValido()) syncAgora(); });
+window.addEventListener('online', () => { if (SY.conectado) agendarSync(); });
+// o navegador só permite abrir o login do Google após um toque: o primeiro toque depois de abrir o app sincroniza
+document.addEventListener('click', e => {
+  if (!SY.conectado || !clientId() || tokenValido() || syncOcupado || syncConflitoAberto || Date.now() - syncTentativa < 30000) return;
+  if (e.target.closest && e.target.closest('[data-nosync]')) return;
+  syncAgora();
+}, true);
+setInterval(() => { if (SY.conectado && !document.hidden && tokenValido()) syncAgora(); }, 300000);
+if (SY.conectado) { syncEstadoSet('auth'); carregarGIS().catch(() => {}); }
+
 // ---------- CONFIGURAÇÕES ----------
 function telaConfig() {
   const campo = (rot, obj, k, tipo = 'number') => `<div><label>${rot}<input type="${tipo}" step="any" value="${esc(S[obj][k] ?? '')}" onchange="S.${obj}.${k}=${tipo === 'number' ? 'numOuVazio(this.value)' : 'this.value'};salvar();render()"></label></div>`;
@@ -1346,13 +1517,14 @@ function telaConfig() {
   <div class="card"><div style="display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
     ${[['cats', 'Categorias'], ['contas', 'Contas (inclua o cartão)'], ['meios', 'Meios de pagamento'], ['tipos', 'Tipos de lançamento']].map(([k, r]) => `<div><label>${r} (uma por linha)<textarea onchange="S.listas.${k}=this.value.split('\\n').map(s=>s.trim()).filter(Boolean);salvar();render()">${esc(S.listas[k].join('\n'))}</textarea></label></div>`).join('')}
   </div></div>
+  ${cardSync()}
   <h2>Backup</h2>
   <div class="card">
     <p class="dica">Versão do app: <b>${APP_VERSION}</b> (${APP_BUILD}) · Último backup: <b>${S.ultimoBackup ? dataBR(S.ultimoBackup) : 'nunca'}</b></p>
-    <p class="dica">Os dados ficam salvos só neste navegador. Para levar para outro aparelho, exporte o backup e importe lá.</p>
+    <p class="dica">Sem a sincronização ligada, os dados ficam salvos só neste navegador. Este backup serve de cópia de segurança (ou para levar dados sem usar o Google).</p>
     <div class="linha-bts"><button class="bt" onclick="exportarBackup()">Exportar backup (.json)</button>
     <label class="bt sec" style="display:inline-block;color:var(--azul);font-size:14px">Importar backup<input type="file" accept=".json" style="display:none" onchange="importarBackup(this.files[0])"></label>
-    <button class="bt perigo" onclick="if(confirm('Apagar TODOS os dados do app?')){localStorage.removeItem(KEY);S=estadoVazio();render()}">Apagar tudo</button></div>
+    <button class="bt perigo" onclick="if(confirm(SY.conectado?'Apagar os dados DESTE aparelho? A cópia na nuvem continua e volta na próxima sincronização. Para apagar tudo, desconecte a sincronização antes.':'Apagar TODOS os dados do app?')){localStorage.removeItem(KEY);S=estadoVazio();render()}">Apagar tudo</button></div>
   </div>`;
 }
 function fazerImport() {

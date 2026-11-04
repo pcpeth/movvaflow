@@ -10,8 +10,11 @@ Abra `index.html` no navegador e use.
 - **Metas (v3.4):** reserva de emergência, juntar valor, quitar dívida, renda extra mensal e teto de gastos, com previsão de conclusão, aporte sugerido e análise de prazos
 - Backup e restauração em JSON
 
+## Sincronização entre aparelhos (v3.5)
+Em *Configurações › Sincronização (Google Drive)*, conecte com o Client ID do Google. Os dados ficam num arquivo na pasta privada do app no seu Drive (escopo `drive.appdata`), sem passar por servidor de terceiros. Cada alteração sobe após ~3 s; ao abrir o app, o primeiro toque sincroniza. Se os dois aparelhos mudarem ao mesmo tempo, o app pede para escolher qual versão manter.
+
 ## Privacidade
-Os dados ficam **somente no navegador** (localStorage). Nada é enviado a servidor e este repositório não contém dados financeiros. Faça backup (Configurações) com frequência: limpar os dados do navegador apaga tudo.
+Os dados ficam no navegador (localStorage) e, se você ativar a sincronização, também no seu próprio Google Drive. Este repositório não contém dados financeiros. O Client ID do Google não é segredo, mas nunca publique backups `.json`. Faça backup (Configurações) com frequência: limpar os dados do navegador apaga tudo.
 
 ## Como usar online (opcional)
 Ative o GitHub Pages em *Settings → Pages → Deploy from a branch → main / root*.
