@@ -32,6 +32,9 @@ Botão flutuante 🤖 em todas as abas (v3.7): chat que entende a aba atual e pr
 ## Modo enxuto (v4.0)
 Começo simples: só **Painel, Lançamentos, Metas, Contas e cartão e Receitas** (mais Configurações) ficam ativos; as demais abas aparecem como "Em breve" e o assistente flutuante fica oculto. Lançamento pede só data, valor, descrição, conta e categoria (meio e tipo são automáticos). Contas mostra saldos, fatura aberta e vencimento; Receitas pede só descrição, conta, valor líquido e dia. Nenhum dado é apagado; em Configurações › Modo do app dá para liberar todas as abas.
 
+## Visual minimalista (v5.0)
+Tema claro e limpo, sem animações. No celular, barra inferior com Painel, Lançamentos, botão + (novo lançamento), Contas e Mais; no computador, menu lateral só com texto. O Painel abre com "Livre para gastar" (saldo das contas menos fatura em aberto).
+
 ## Privacidade
 Os dados ficam no navegador (localStorage) e, se você ativar a sincronização, também no seu próprio Google Drive. Este repositório não contém dados financeiros. O Client ID do Google não é segredo, mas nunca publique backups `.json`. Faça backup (Configurações) com frequência: limpar os dados do navegador apaga tudo.
 
