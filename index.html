@@ -150,7 +150,7 @@ main>h2{color:#edf4ff}nav{background:#0e192df5;border-color:#ffffff12}nav button
 <div id="modal"></div>
 <script>
 // ===== PARTE 2 — DADOS E CÁLCULOS =====
-const APP_VERSION = 'v3.5', APP_BUILD = '03/11/2026'; // sobe a cada alteração do app
+const APP_VERSION = 'v3.5.1', APP_BUILD = '03/11/2026'; // sobe a cada alteração do app
 const KEY = 'financas_app_v1';
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const MES3 = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
@@ -1323,7 +1323,7 @@ function blocoMetasResumo() {
 // ---------- SINCRONIZAÇÃO (Google Drive, pasta privada do app) ----------
 // Os dados ficam num único arquivo na pasta "appDataFolder" do Drive: só este app enxerga, não aparece no seu Drive.
 const SYNC_KEY = 'financas_sync_v1';
-const GOOGLE_CLIENT_ID = ''; // opcional: preencha para não precisar colar o Client ID em cada aparelho
+const GOOGLE_CLIENT_ID = '325707134444-esecviegrkgbtpn9l2dmka8rsnutoiue.apps.googleusercontent.com'; // público por natureza (não é segredo)
 const SYNC_ARQ = 'movvaflow-dados.json';
 const SYNC_ROT = { ok: 'sincronizado', trab: 'sincronizando…', pend: 'alterações pendentes', erro: 'erro ao sincronizar', auth: 'toque para sincronizar', off: '' };
 let SY = lerSync(), syncEstado = 'off', syncMsg = '', syncTimer = null, syncOcupado = false, syncRepetir = false;
