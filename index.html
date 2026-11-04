@@ -187,7 +187,7 @@ nav button.breve{opacity:.45;cursor:not-allowed;position:relative}nav button.bre
 <div id="modal"></div>
 <script>
 // ===== PARTE 2 — DADOS E CÁLCULOS =====
-const APP_VERSION = 'v4.0', APP_BUILD = '03/11/2026'; // sobe a cada alteração do app
+const APP_VERSION = 'v4.1', APP_BUILD = '03/11/2026'; // sobe a cada alteração do app
 const KEY = 'financas_app_v1';
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const MES3 = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
@@ -510,7 +510,7 @@ const TELAS = [
   ['agenda', '🗓️', 'Calendário'], ['receitas', '💰', 'Receitas'], ['emprest', '🏦', 'Empréstimos'], ['rev', '✂️', 'Revisão de gastos'], ['proj', '📈', 'Projeção'], ['sim', '🎯', 'Simulação'], ['ia', '🤖', 'Assistente IA'], ['config', '⚙️', 'Configurações']
 ];
 // Modo enxuto: só o essencial fica ativo; o resto aparece como "Em breve" (nenhum dado é apagado)
-const ABAS_ENXUTO = ['painel', 'lanc', 'metas', 'config'];
+const ABAS_ENXUTO = ['painel', 'lanc', 'metas', 'contas', 'receitas', 'config'];
 let MODO_COMPLETO = false; try { MODO_COMPLETO = localStorage.getItem('financas_modo_v1') === 'completo'; } catch (e) {}
 const enxuto = () => !MODO_COMPLETO;
 const abaAtiva = k => MODO_COMPLETO || ABAS_ENXUTO.includes(k);
@@ -852,10 +852,11 @@ function editar(arr, i, k, v, t) {
   salvar(); render();
 }
 function remover(arr, i) { if (!confirm('Remover esta linha?')) return; S[arr].splice(i, 1); salvar(); render(); }
-function adicionar(arr) { S[arr].push({}); salvar(); render(); }
+function adicionar(arr) { S[arr].push(arr === 'receitas' ? { tipo: 'Salário', freq: 'Mensal', ativa: 'Sim' } : arr === 'contas' ? { tipo: 'Corrente' } : {}); salvar(); render(); }
 
 // ---------- CONTAS E CARTÃO ----------
 function telaContas() {
+  if (enxuto()) return telaContasEnxuto();
   const c = cartaoResumo(), fs = faturasCalc(), ci = cicloInfo();
   $('tela').innerHTML = `
   <h2>Contas</h2>
@@ -878,6 +879,31 @@ function telaContas() {
   <h2>Editar faturas</h2>
   ${editor('faturas', [['nome', 'Nome', 't'], ['origem', 'Origem (extrato)', 't'], ['venc', 'Vencimento', 'd'], ['valorFixo', 'Valor fixo (opcional)', 'n']])}`;
 }
+function telaContasEnxuto() {
+  const c = cartaoResumo(), fs = faturasCalc(), prox = fs.filter(f => f.aberto > 0)[0], lista = fs.filter(f => f.valor > 0 || f.aberto > 0);
+  $('tela').innerHTML = `
+  <h2>Resumo</h2>
+  <div class="grid">
+    <div class="card kpi"><div class="rot">Total em contas</div><div class="val ${cor(saldoTotal())}">${brl(saldoTotal())}</div></div>
+    <div class="card kpi"><div class="rot">Fatura em aberto</div><div class="val">${brl(c.aberto)}</div><div class="det">${esc(S.cfg.cartao || 'Cartão')}</div></div>
+    <div class="card kpi"><div class="rot">Próximo vencimento</div><div class="val">${prox ? dataBR(prox.venc) : '—'}</div><div class="det">${prox ? esc(prox.nome) + ': ' + brl(prox.aberto) : 'Nada a pagar'}</div></div>
+  </div>
+  <h2>Minhas contas</h2>
+  ${editor('contas', [['nome', 'Conta', 't'], ['saldoIni', 'Saldo inicial', 'n']], it => [['Saldo atual', it.nome ? `<b class="${cor(saldoConta(it.nome))}">${brl(saldoConta(it.nome))}</b>` : '']])}
+  <p class="dica">Saldo atual = saldo inicial + todos os lançamentos da conta.</p>
+  <h2>Faturas do cartão</h2>
+  <div class="rolar"><table class="tabela"><tr><th>Fatura</th><th class="n">Valor</th><th class="n">Vencimento</th><th class="n">Em aberto</th><th>Situação</th><th></th></tr>
+  ${lista.map(f => `<tr><td>${esc(f.nome)}</td><td class="n">${brl(f.valor)}</td><td class="n">${dataBR(f.venc)}</td><td class="n">${brl(f.aberto)}</td><td>${tag(f.sit)}</td><td>${f.aberto > 0 ? `<button class="bt" style="padding:6px 10px" onclick="pagarFatura('${f.origem}')">Pagar</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="6">Nenhuma fatura ainda. Importe o CSV do cartão em Lançamentos.</td></tr>'}</table></div>`;
+}
+function telaReceitasEnxuto() {
+  const ativas = S.receitas.filter(r => r.desc && r.ativa !== 'Não'), total = ativas.reduce((a, r) => a + receitaMensal(r), 0);
+  $('tela').innerHTML = `
+  <h2>Resumo</h2>
+  <div class="grid"><div class="card kpi"><div class="rot">Receita fixa por mês</div><div class="val pos">${brl(total)}</div><div class="det">${ativas.length} fonte(s) ativa(s)</div></div></div>
+  <h2>Minhas receitas fixas</h2>
+  ${editor('receitas', [['desc', 'Descrição', 't'], ['conta', 'Conta', S.contas.map(c => c.nome)], ['valor', 'Valor líquido', 'n'], ['dia', 'Dia do mês', 'n']], it => [['Por mês', brl(receitaMensal(it))]])}
+  <p class="dica">Informe o salário líquido (o que cai na conta). Descontos de folha e outras frequências aparecem quando você liberar todas as abas.</p>`;
+}
 function pagarFatura(origem) {
   const f = faturasCalc().find(x => x.origem === origem);
   const contas = S.contas.map(c => c.nome);
@@ -892,6 +918,7 @@ function pagarFatura(origem) {
 
 // ---------- RECEITAS ----------
 function telaReceitas() {
+  if (enxuto()) return telaReceitasEnxuto();
   const freqs = Object.keys(S.freq), bruto = salarioBruto(), consig = consignadoFolha(), desc = totalDescontosSemConsig();
   $('tela').innerHTML = `
   <h2>Receitas fixas</h2>
