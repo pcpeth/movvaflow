@@ -151,6 +151,8 @@ main>h2{color:#edf4ff}nav{background:#0e192df5;border-color:#ffffff12}nav button
 #iaIn{width:100%;box-sizing:border-box}
 
 /* ===== Assistente flutuante ===== */
+.enxuto .ia-fab,.enxuto .ia-painel{display:none!important}
+nav button.breve{opacity:.45;cursor:not-allowed;position:relative}nav button.breve em{font-style:normal;font-size:9px;margin-left:6px;padding:2px 6px;border-radius:6px;background:#e3ecf5;color:#4a6a8a;white-space:nowrap}
 .ia-fab{position:fixed;right:16px;bottom:calc(84px + env(safe-area-inset-bottom));z-index:9;width:54px;height:54px;border-radius:50%;border:0;background:linear-gradient(135deg,#126b57,#2ba98a);color:#fff;font-size:26px;box-shadow:0 8px 24px #0005;cursor:pointer}
 .ia-painel{position:fixed;left:8px;right:8px;bottom:calc(84px + env(safe-area-inset-bottom));height:min(72vh,calc(100vh - 170px));z-index:10;background:#fff;border:1px solid var(--borda);border-radius:18px;box-shadow:0 16px 48px #0006;display:flex;flex-direction:column;overflow:hidden}
 .ia-painel[hidden]{display:none}
@@ -185,7 +187,7 @@ main>h2{color:#edf4ff}nav{background:#0e192df5;border-color:#ffffff12}nav button
 <div id="modal"></div>
 <script>
 // ===== PARTE 2 — DADOS E CÁLCULOS =====
-const APP_VERSION = 'v3.9', APP_BUILD = '03/11/2026'; // sobe a cada alteração do app
+const APP_VERSION = 'v4.0', APP_BUILD = '03/11/2026'; // sobe a cada alteração do app
 const KEY = 'financas_app_v1';
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const MES3 = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
@@ -507,6 +509,12 @@ const TELAS = [
   ['painel', '📊', 'Painel'], ['metas', '🏁', 'Metas'], ['lanc', '🧾', 'Lançamentos'], ['contas', '💳', 'Contas e cartão'],
   ['agenda', '🗓️', 'Calendário'], ['receitas', '💰', 'Receitas'], ['emprest', '🏦', 'Empréstimos'], ['rev', '✂️', 'Revisão de gastos'], ['proj', '📈', 'Projeção'], ['sim', '🎯', 'Simulação'], ['ia', '🤖', 'Assistente IA'], ['config', '⚙️', 'Configurações']
 ];
+// Modo enxuto: só o essencial fica ativo; o resto aparece como "Em breve" (nenhum dado é apagado)
+const ABAS_ENXUTO = ['painel', 'lanc', 'metas', 'config'];
+let MODO_COMPLETO = false; try { MODO_COMPLETO = localStorage.getItem('financas_modo_v1') === 'completo'; } catch (e) {}
+const enxuto = () => !MODO_COMPLETO;
+const abaAtiva = k => MODO_COMPLETO || ABAS_ENXUTO.includes(k);
+function alternarModo() { MODO_COMPLETO = !MODO_COMPLETO; try { localStorage.setItem('financas_modo_v1', MODO_COMPLETO ? 'completo' : 'enxuto'); } catch (e) {} if (!abaAtiva(telaAtual)) telaAtual = 'painel'; render(); toast(MODO_COMPLETO ? 'Todas as abas liberadas' : 'Modo enxuto ativado'); }
 let telaAtual = 'painel';
 let filtro = { mes: '', conta: '', cat: '', busca: '' };
 let mesPainel = chaveMes(hoje());
@@ -516,7 +524,7 @@ const tag = s => `<span class="tag ${esc(s)}">${esc(s)}</span>`;
 const cor = v => v < 0 ? 'neg' : 'pos';
 function toast(t) { const d = document.createElement('div'); d.className = 'toast'; d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 2500); }
 
-function ir(t) { telaAtual = t; render(); window.scrollTo(0, 0); }
+function ir(t) { if (!abaAtiva(t)) return toast('Em breve'); telaAtual = t; render(); window.scrollTo(0, 0); }
 // Editar uma célula não pode tirar o cursor: se o render vem de um "change" dentro da tela, ele é adiado
 // até o clique/tab terminar e o foco volta para o mesmo campo.
 let ptrDown = false, renderPend = false;
@@ -536,11 +544,13 @@ function renderComFoco() {
   if (idx >= 0) { const n = campos()[idx]; if (n) { n.focus({ preventScroll: true }); try { if (ss != null) n.setSelectionRange(ss, se); } catch (e) {} } }
 }
 function renderAgora() {
-  $('nav').innerHTML = TELAS.map(([k, i, n]) => `<button aria-current="${k === telaAtual ? 'page' : 'false'}" class="${k === telaAtual ? 'ativo' : ''}" onclick="ir('${k}')"><span>${i}</span>${n}</button>`).join('');
+  if (!abaAtiva(telaAtual)) telaAtual = 'painel';
+  document.body.classList.toggle('enxuto', enxuto());
+  $('nav').innerHTML = TELAS.map(([k, i, n]) => abaAtiva(k) ? `<button aria-current="${k === telaAtual ? 'page' : 'false'}" class="${k === telaAtual ? 'ativo' : ''}" onclick="ir('${k}')"><span>${i}</span>${n}</button>` : `<button class="breve" aria-disabled="true" title="Em breve" onclick="ir('${k}')"><span>${i}</span>${n}<em>Em breve</em></button>`).join('');
   $('atualizado').textContent = textoRodape(); if (typeof iaAtualizarAba === 'function') iaAtualizarAba();
   document.title = 'Minhas Finanças ' + APP_VERSION;
   if (!S.lanc.length && !S.contas.length && telaAtual !== 'config' && telaAtual !== 'metas' && telaAtual !== 'ia') {
-    $('tela').innerHTML = `<div class="card"><h2>Bem-vindo!</h2><p>Ainda não há dados. Vá em <b>Configurações › Importar da planilha</b> e cole o conteúdo da aba "Exportar App".</p><button class="bt" onclick="ir('config')">Ir para Configurações</button></div>`;
+    $('tela').innerHTML = `<div class="card"><h2>Bem-vindo!</h2><p>Vamos começar do simples: lance seu primeiro gasto ou receita${enxuto() ? '' : ', ou importe da planilha em <b>Configurações</b>'}.</p><div class="linha-bts"><button class="bt" onclick="abrirLancamento()">Novo lançamento</button><button class="bt sec" onclick="modalCSV()">Importar CSV da fatura</button></div></div>`;
     return;
   }
   ({ agenda: telaAgenda, metas: telaMetas, painel: telaPainel, lanc: telaLanc, contas: telaContas, receitas: telaReceitas, emprest: telaEmprest, rev: telaRev, proj: telaProj, sim: telaSim, ia: telaIA, config: telaConfig })[telaAtual]();
@@ -583,6 +593,7 @@ function alertasPainel() {
 
 // ---------- PAINEL ----------
 function telaPainel() {
+  if (enxuto()) return telaPainelEnxuto();
   const c = cartaoResumo(), p = projecao(), m = D(mesPainel + '-01');
   const doMes = S.lanc.filter(l => l.data.slice(0, 7) === mesPainel);
   const catsG = catsGasto();
@@ -619,6 +630,29 @@ function telaPainel() {
   </div>
   <h2>Últimos 6 meses</h2>
   <div class="card">${hist.map(h => `<div class="barra"><div class="nome">${mesBR(h.m)}</div><div class="trilho"><div class="enche" style="width:${h.v / hmax * 100}%"></div></div><div class="v">${brl(h.v)}</div></div>`).join('')}</div>`;
+}
+
+function telaPainelEnxuto() {
+  const m = D(mesPainel + '-01'), doMes = S.lanc.filter(l => l.data.slice(0, 7) === mesPainel), catsG = catsGasto();
+  const gastoMes = catsG.reduce((a, ct) => a + gastoCatMes(ct, m), 0);
+  const entradas = doMes.filter(l => l.valor > 0 && l.conta !== S.cfg.cartao && l.cat !== 'Transferência').reduce((a, l) => a + l.valor, 0);
+  const porCat = catsG.map(ct => ({ ct, v: gastoCatMes(ct, m), o: num((S.orc.find(o => o.cat === ct) || {}).valor) })).filter(x => x.v !== 0).sort((a, b) => b.v - a.v);
+  const max = Math.max(1, ...porCat.map(x => Math.max(x.v, x.o)));
+  const meses = [...new Set(S.lanc.map(l => l.data.slice(0, 7)).concat(chaveMes(hoje())))].sort().reverse();
+  $('tela').innerHTML = `
+  ${blocoAlertas()}
+  <h2>Resumo</h2>
+  <div class="grid">
+    <div class="card kpi"><div class="rot">Saldo em contas</div><div class="val ${cor(saldoTotal())}">${brl(saldoTotal())}</div></div>
+    <div class="card kpi"><div class="rot">Gastos do mês</div><div class="val neg">${brl(gastoMes)}</div></div>
+    <div class="card kpi"><div class="rot">Entradas do mês</div><div class="val pos">${brl(entradas)}</div></div>
+  </div>
+  ${blocoMetasResumo()}
+  <h2>Gastos por categoria</h2>
+  <div class="card">
+    <div class="filtros"><select onchange="mesPainel=this.value;render()">${meses.map(k => `<option value="${k}" ${k === mesPainel ? 'selected' : ''}>${MESES[+k.slice(5) - 1]} ${k.slice(0, 4)}</option>`).join('')}</select></div>
+    ${porCat.map(x => `<div class="barra"><div class="nome">${esc(x.ct)}</div><div class="trilho"><div class="enche ${x.o && x.v > x.o ? 'acima' : ''}" style="width:${Math.max(0, x.v) / max * 100}%"></div></div><div class="v">${brl(x.v)}</div></div>`).join('') || '<p class="dica">Sem gastos neste mês.</p>'}
+  </div>`;
 }
 
 // ---------- LANÇAMENTOS ----------
@@ -661,9 +695,10 @@ function abrirLancamento(id) {
         <div><label>Valor (R$)<input type="number" step="0.01" min="0" id="fValor" value="${l.valor === '' ? '' : Math.abs(l.valor)}" required inputmode="decimal"></label></div>
         <div style="grid-column:1/-1"><label>Descrição<input id="fDesc" value="${esc(l.desc)}" required oninput="autoCategoria()"></label></div>
         <div><label>Conta<select id="fConta" onchange="autoMeio();infoFatura()">${opt(S.listas.contas, l.conta)}</select></label></div>
-        <div><label>Meio de pagamento<select id="fMeio">${opt(S.listas.meios, l.meio)}</select></label></div>
-        <div><label>Tipo<select id="fTipo">${opt(S.listas.tipos, l.tipo)}</select></label></div>
         <div><label>Categoria<select id="fCat">${opt(S.listas.cats, l.cat)}</select></label></div>
+        <details style="grid-column:1/-1" ${enxuto() ? '' : 'open'}><summary class="dica" style="cursor:pointer">Mais opções (automáticas)</summary><div class="campos" style="margin-top:8px">
+        <div><label>Meio de pagamento<select id="fMeio">${opt(S.listas.meios, l.meio)}</select></label></div>
+        <div><label>Tipo<select id="fTipo">${opt(S.listas.tipos, l.tipo)}</select></label></div></div></details>
       </div>
       <div id="fInfo" class="dica"></div>
       <div class="linha-bts"><button class="bt">Salvar</button><button type="button" class="bt sec" onclick="fecharModal()">Cancelar</button>
@@ -687,6 +722,8 @@ function infoFatura() {
 function salvarLancamento(ev, id) {
   ev.preventDefault();
   const l = { id: id || uid(), data: $('fData').value, desc: $('fDesc').value.trim(), valor: r2(formSinal * num($('fValor').value)), conta: $('fConta').value, meio: $('fMeio').value, tipo: $('fTipo').value, cat: $('fCat').value };
+  if (!l.meio) l.meio = l.conta === S.cfg.cartao ? 'Crédito' : 'Pix';
+  if (!l.tipo) l.tipo = formSinal < 0 ? 'Gasto' : 'Receita';
   l.origem = l.conta === S.cfg.cartao ? origemParaCompra(l.data) : 'Manual';
   const old = S.lanc.find(x => x.id === id);
   if (old && old.conta === l.conta && old.data === l.data) l.origem = old.origem;
@@ -2207,24 +2244,28 @@ function cardCategorias() {
 }
 
 // ---------- CONFIGURAÇÕES ----------
+function cardModo() {
+  return `<h2>Modo do app</h2><div class="card"><p class="dica">${enxuto() ? 'Modo <b>enxuto</b>: só Painel, Lançamentos e Metas estão ativos. As outras abas aparecem como "Em breve" e seus dados continuam guardados.' : 'Modo <b>completo</b>: todas as abas liberadas.'}</p><div class="linha-bts"><button class="bt sec" onclick="alternarModo()">${enxuto() ? 'Liberar todas as abas' : 'Voltar ao modo enxuto'}</button></div></div>`;
+}
 function telaConfig() {
   const campo = (rot, obj, k, tipo = 'number') => `<div><label>${rot}<input type="${tipo}" step="any" value="${esc(S[obj][k] ?? '')}" onchange="S.${obj}.${k}=${tipo === 'number' ? 'numOuVazio(this.value)' : 'this.value'};salvar();render()"></label></div>`;
   $('tela').innerHTML = `
-  <h2>Importar da planilha</h2>
+  ${cardModo()}
+  ${enxuto() ? '' : `<h2>Importar da planilha</h2>
   <div class="card">
     <p class="dica">Na planilha, abra a aba <b>Exportar App</b>, clique em A1, aperte <b>Ctrl+Shift+End</b>, copie (Ctrl+C) e cole aqui.</p>
     <textarea id="txtImport" placeholder="Cole aqui o conteúdo da aba Exportar App..."></textarea>
     <div class="aviso">Importar <b>substitui</b> todos os dados do app pelos da planilha. Se você lançou coisas só no app, exporte um backup antes.</div>
     <div class="linha-bts"><button class="bt" onclick="fazerImport()">Importar</button></div>
-  </div>
+  </div>`}
   <h2>Cartão e projeção</h2>
   <div class="card"><div style="display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
     ${campo('Nome do cartão (conta)', 'cfg', 'cartao', 'text')}${campo('Limite do cartão', 'cfg', 'limite')}${campo('Dia de fechamento', 'cfg', 'fech')}${campo('Dia de vencimento', 'cfg', 'venc')}${campo('Reserva mínima desejada', 'cfg', 'reserva')}
   </div>
-  <p class="dica" style="margin-top:14px"><b>Sobrescrever premissas da projeção</b> (deixe vazio para calcular sozinho):</p>
+  ${enxuto() ? '' : `<p class="dica" style="margin-top:14px"><b>Sobrescrever premissas da projeção</b> (deixe vazio para calcular sozinho):</p>
   <div style="display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
     ${campo('Mês inicial (vazio = mês atual)', 'pj', 'mesInicial', 'date')}${campo('Saldo inicial', 'pj', 'saldo')}${campo('Receita líquida mensal', 'pj', 'receita')}${campo('Gasto mensal', 'pj', 'gasto')}${campo('Parcelas por mês', 'pj', 'parcelas')}${campo('Fatura por mês', 'pj', 'fatura')}
-  </div></div>
+  </div>`}</div>
   ${cardCategorias()}
   <h2>Regras de categoria</h2>
   <p class="dica">Se a descrição contém a palavra-chave, a categoria é preenchida sozinha. Vale a ÚLTIMA regra encontrada (as de baixo têm prioridade).</p>
