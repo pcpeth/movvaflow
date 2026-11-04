@@ -23,6 +23,12 @@ Botão flutuante 🤖 em todas as abas (v3.7): chat que entende a aba atual e pr
 - **Escreva como fala** ao criar um lançamento: "45 ifood ontem no cartão".
 - Com a chave da IA, o assistente consulta os lançamentos com cálculos exatos em vez de estimar.
 
+## Categorias (v3.9)
+- **Conjunto sugerido (12 categorias enxutas):** soma ao que você já tem, reaproveitando nomes parecidos (sem duplicar), com prévia antes de aplicar.
+- **Regras de palavras-chave** de estabelecimentos brasileiros (iFood, Uber, Drogasil, Netflix...). Suas regras continuam valendo e têm prioridade; a busca ignora acentos e maiúsculas.
+- **Orçamento sugerido** pela média dos últimos meses +5%.
+- **Gerenciador** em Configurações: renomear, mesclar e excluir (atualiza lançamentos, regras, orçamentos e metas), criar, ver média por mês e marcar "conta como gasto".
+
 ## Privacidade
 Os dados ficam no navegador (localStorage) e, se você ativar a sincronização, também no seu próprio Google Drive. Este repositório não contém dados financeiros. O Client ID do Google não é segredo, mas nunca publique backups `.json`. Faça backup (Configurações) com frequência: limpar os dados do navegador apaga tudo.
 

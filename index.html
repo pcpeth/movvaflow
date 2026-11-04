@@ -185,7 +185,7 @@ main>h2{color:#edf4ff}nav{background:#0e192df5;border-color:#ffffff12}nav button
 <div id="modal"></div>
 <script>
 // ===== PARTE 2 — DADOS E CÁLCULOS =====
-const APP_VERSION = 'v3.8', APP_BUILD = '03/11/2026'; // sobe a cada alteração do app
+const APP_VERSION = 'v3.9', APP_BUILD = '03/11/2026'; // sobe a cada alteração do app
 const KEY = 'financas_app_v1';
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const MES3 = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
@@ -262,8 +262,8 @@ function importarTexto(txt) {
 
 // ---------- regras de categoria (vale a ÚLTIMA palavra-chave encontrada) ----------
 function sugerirCategoria(desc) {
-  const d = String(desc).toLowerCase(); let achou = null;
-  for (const r of S.regras) if (r.k && d.includes(r.k.toLowerCase())) achou = r;
+  const d = normDesc(desc); let achou = null;
+  for (const r of S.regras) { const k = r.k && normDesc(r.k); if (k && d.includes(k)) achou = r; }
   return achou;
 }
 
@@ -2074,6 +2074,138 @@ function iaConsultar(i) {
   return JSON.stringify({ sentido: sent, quantidade: L.length, total, media: L.length ? r2(total / L.length) : 0, por_grupo: grupos, maiores: [...L].sort((a, b) => Math.abs(b.valor) - Math.abs(a.valor)).slice(0, 8).map(l => ({ data: l.data, desc: String(l.desc).slice(0, 40), valor: sg(l.valor), cat: l.cat })) });
 }
 
+// ---------- CATEGORIAS: conjunto sugerido, regras, orçamento e gerenciador ----------
+const CATS_SISTEMA = ['Pagamento de fatura', 'Transferência', 'Empréstimos']; // o app usa estes nomes em cálculos: não renomear nem excluir
+const normCat = s => normDesc(s);
+const CATS_BASE = [
+  { nome: 'Moradia', alias: ['moradia', 'casa', 'habitacao', 'residencia'], regras: ['aluguel', 'condominio', 'iptu', 'enel', 'cemig', 'copel', 'cpfl', 'sabesp', 'copasa', 'sanepar', 'comgas'] },
+  { nome: 'Alimentação', alias: ['alimentacao', 'mercado', 'supermercado', 'comida', 'refeicoes'], regras: ['ifood', 'rappi', 'mcdonald', 'burger king', 'subway', 'outback', 'habibs', 'restaurante', 'lanchonete', 'padaria', 'pizzaria', 'acai', 'supermercado', 'atacadao', 'assai', 'carrefour', 'pao de acucar', 'hortifruti', 'sacolao', 'acougue'] },
+  { nome: 'Transporte', alias: ['transporte', 'carro', 'veiculo', 'locomocao', 'automovel'], regras: ['uber', 'cabify', 'ipiranga', 'petrobras', 'shell', 'sem parar', 'conectcar', 'estacionamento', 'bilhete unico', 'sptrans'] },
+  { nome: 'Saúde', alias: ['saude', 'farmacia', 'medico', 'bem estar'], regras: ['drogasil', 'droga raia', 'drogaria', 'farmacia', 'pague menos', 'pacheco', 'ultrafarma', 'unimed', 'amil', 'hapvida', 'sulamerica', 'laboratorio', 'clinica', 'hospital', 'dentista', 'odonto', 'smart fit', 'smartfit', 'bluefit', 'gympass', 'totalpass'] },
+  { nome: 'Educação', alias: ['educacao', 'estudos', 'cursos', 'escola', 'faculdade'], regras: ['escola', 'faculdade', 'fatec', 'udemy', 'coursera', 'alura', 'livraria', 'saraiva'] },
+  { nome: 'Lazer', alias: ['lazer', 'entretenimento', 'diversao', 'viagem', 'viagens'], regras: ['cinema', 'cinemark', 'ingresso', 'sympla', 'steam', 'playstation', 'xbox', 'nintendo', 'airbnb', 'booking', 'decolar', 'hotel', 'cervejaria', 'latam', 'gol linhas'] },
+  { nome: 'Compras', alias: ['compras', 'vestuario', 'roupas', 'shopping'], regras: ['amazon', 'shopee', 'aliexpress', 'shein', 'magalu', 'magazine luiza', 'americanas', 'casas bahia', 'renner', 'riachuelo', 'zara', 'centauro', 'netshoes', 'kabum', 'leroy merlin', 'tok stok', 'ikea'] },
+  { nome: 'Assinaturas', alias: ['assinaturas', 'streaming', 'mensalidades', 'servicos digitais'], regras: ['netflix', 'spotify', 'disney', 'hbo', 'youtube premium', 'google one', 'icloud', 'apple.com', 'deezer', 'globoplay', 'paramount', 'crunchyroll', 'chatgpt', 'openai', 'anthropic', 'microsoft 365', 'adobe', 'dropbox'] },
+  { nome: 'Cuidados pessoais', alias: ['cuidados pessoais', 'beleza', 'higiene', 'estetica'], regras: ['barbearia', 'salao', 'cabeleireiro', 'manicure', 'boticario', 'natura', 'sephora'] },
+  { nome: 'Impostos e taxas', alias: ['impostos', 'taxas', 'impostos e taxas', 'tarifas', 'tributos'], regras: ['ipva', 'detran', 'darf', 'anuidade', 'tarifa'] },
+  { nome: 'Presentes e doações', alias: ['presentes', 'doacoes', 'presentes e doacoes'], regras: ['doacao', 'vakinha', 'presente'] },
+  { nome: 'Outros', alias: ['outros', 'diversos'], regras: [] }
+];
+// exceções que precisam vencer as regras genéricas acima (a última regra encontrada vale)
+const CATS_AJUSTES = [['uber eats', 'Alimentação'], ['amazon prime', 'Assinaturas'], ['prime video', 'Assinaturas'], ['mercado livre', 'Compras'], ['mercadolivre', 'Compras']];
+
+let conjPlano = [], conjAplicar = true;
+function abrirConjunto() {
+  conjPlano = CATS_BASE.map(b => {
+    const e = S.listas.cats.find(c => !CATS_SISTEMA.includes(c) && (normCat(c) === normCat(b.nome) || b.alias.includes(normCat(c)))) || '';
+    return { nome: b.nome, existente: e, alvo: e || b.nome, regras: b.regras, sel: true };
+  });
+  modalConjunto();
+}
+const regraNova = k => !S.regras.some(r => normDesc(r.k) === normDesc(k));
+function modalConjunto() {
+  const novas = conjPlano.filter(p => !p.existente && p.sel).length, nRegras = conjPlano.filter(p => p.sel).reduce((a, p) => a + p.regras.filter(regraNova).length, 0);
+  $('modal').innerHTML = `<div class="modal" onclick="if(event.target===this)fecharModal()"><div class="caixa"><h2>Conjunto sugerido de categorias</h2>
+    <p class="dica">12 categorias enxutas para finanças pessoais no Brasil. Nada é apagado: as que você já tem são reaproveitadas e só as que faltam são criadas.</p>
+    <div class="rolar"><table class="tabela"><tr><th></th><th>Categoria</th><th>Situação</th><th class="n">Regras novas</th></tr>
+    ${conjPlano.map((p, i) => `<tr><td><input type="checkbox" ${p.sel ? 'checked' : ''} onchange="conjPlano[${i}].sel=this.checked;modalConjunto()"></td><td>${esc(p.nome)}</td><td>${p.existente ? (p.existente === p.nome ? 'já existe' : 'já existe como <b>' + esc(p.existente) + '</b>') : '<b>nova</b>'}</td><td class="n">${p.regras.filter(regraNova).length}</td></tr>`).join('')}</table></div>
+    <label style="display:flex;gap:8px;align-items:center;margin:10px 0"><input type="checkbox" ${conjAplicar ? 'checked' : ''} onchange="conjAplicar=this.checked"> Aplicar as regras aos lançamentos que estão sem categoria</label>
+    <p class="dica">${novas} categoria(s) nova(s) e cerca de ${nRegras} regra(s) de palavras-chave. As suas regras atuais continuam valendo e têm prioridade.</p>
+    <div class="linha-bts"><button class="bt" onclick="aplicarConjunto()">Adicionar</button><button class="bt sec" onclick="fecharModal()">Cancelar</button></div></div></div>`;
+}
+function aplicarConjunto() {
+  const tipo = S.listas.tipos.includes('Gasto') ? 'Gasto' : '', novas = []; let nc = 0;
+  S.gastoCats = catsGasto().slice();
+  conjPlano.filter(p => p.sel).forEach(p => {
+    if (!p.existente && !S.listas.cats.some(c => normCat(c) === normCat(p.nome))) { S.listas.cats.push(p.nome); S.gastoCats.push(p.nome); nc++; }
+    p.regras.forEach(k => { if (regraNova(k) && !novas.some(n => normDesc(n.k) === normDesc(k))) novas.push({ k, cat: p.alvo, tipo }); });
+  });
+  CATS_AJUSTES.forEach(([k, nome]) => { const p = conjPlano.find(x => x.nome === nome && x.sel); if (p) { const i = novas.findIndex(n => normDesc(n.k) === normDesc(k)); if (i >= 0) novas.splice(i, 1); if (regraNova(k)) novas.push({ k, cat: p.alvo, tipo }); } });
+  S.regras = [...novas, ...S.regras]; // as regras do usuário ficam depois, então vencem
+  let ap = 0; if (conjAplicar) S.lanc.forEach(l => { if (!l.cat && l.valor < 0) { const r = sugerirCategoria(l.desc); if (r) { l.cat = r.cat; ap++; } } });
+  salvar(); fecharModal(); render(); toast(`${nc} categoria(s), ${novas.length} regra(s)` + (ap ? `, ${ap} lançamento(s) categorizado(s)` : ''));
+}
+
+// ---------- orçamento sugerido ----------
+function mediaAnterior(c) { const b = iniMes(hoje()), v = [1, 2, 3, 4, 5, 6].map(i => gastoCatMes(c, addMes(b, -i))).filter(x => x > 0); return v.length ? v.reduce((a, x) => a + x, 0) / v.length : 0; }
+function sugerirOrcamentos() {
+  const alvo = catsGasto().filter(c => !CATS_SISTEMA.includes(c) && !(num((S.orc.find(o => o.cat === c) || {}).valor) > 0)).map(c => ({ c, v: Math.ceil(mediaAnterior(c) * 1.05 / 10) * 10 })).filter(x => x.v > 0);
+  if (!alvo.length) return toast('Sem histórico para sugerir, ou todas as categorias já têm orçamento.');
+  if (!confirm('Definir orçamento para ' + alvo.length + ' categoria(s), pela média dos últimos meses +5%?\n\n' + alvo.map(x => x.c + ': ' + brl(x.v)).join('\n') + '\n\nDepois você ajusta na tabela.')) return;
+  alvo.forEach(x => { let o = S.orc.find(y => y.cat === x.c); if (!o) { o = { cat: x.c, valor: 0 }; S.orc.push(o); } o.valor = x.v; });
+  salvar(); render(); toast(alvo.length + ' orçamento(s) definido(s)');
+}
+
+// ---------- gerenciador ----------
+function trocarCat(velho, novo) {
+  S.listas.cats = S.listas.cats.map(c => c === velho ? novo : c); S.gastoCats = S.gastoCats.map(c => c === velho ? novo : c);
+  ['lanc', 'regras', 'orc', 'metas', 'agenda', 'receitas', 'descontos', 'emprestimos'].forEach(k => (S[k] || []).forEach(it => { if (it && it.cat === velho) it.cat = novo; }));
+  ((S.rev && S.rev.itens) || []).forEach(it => { if (it && it.cat === velho) it.cat = novo; });
+}
+function dedupeCats() {
+  S.listas.cats = [...new Set(S.listas.cats)]; S.gastoCats = [...new Set(S.gastoCats)];
+  const orc = {}; S.orc.forEach(o => { if (!orc[o.cat]) orc[o.cat] = { cat: o.cat, valor: 0 }; orc[o.cat].valor += num(o.valor); }); S.orc = Object.values(orc);
+  const vistas = new Set(); S.regras = S.regras.slice().reverse().filter(r => { const k = normDesc(r.k) + '|' + r.cat; if (vistas.has(k)) return false; vistas.add(k); return true; }).reverse();
+}
+function nomeCatOk(nome, ignorar) {
+  const n = String(nome || '').trim().slice(0, 40); if (!n) return '';
+  if (S.listas.cats.some(c => c !== ignorar && normCat(c) === normCat(n))) return '';
+  return n;
+}
+function novaCat() {
+  const el = $('novaCatNome'), n = nomeCatOk(el && el.value); if (!n) return alert('Digite um nome que ainda não exista.');
+  S.gastoCats = catsGasto().slice(); S.listas.cats.push(n); S.gastoCats.push(n); salvar(); render(); toast('Categoria criada');
+}
+function renomearCatUI(i) {
+  const c = S.listas.cats[i]; if (!c || CATS_SISTEMA.includes(c)) return;
+  const t = prompt('Novo nome para "' + c + '":', c); if (t === null) return; const n = String(t).trim().slice(0, 40); if (!n || n === c) return;
+  const ex = S.listas.cats.find(x => x !== c && normCat(x) === normCat(n));
+  if (ex) { if (CATS_SISTEMA.includes(ex) || !confirm('Já existe "' + ex + '". Mesclar "' + c + '" nela?')) return; trocarCat(c, ex); dedupeCats(); }
+  else trocarCat(c, n);
+  salvar(); render(); toast('Categoria atualizada');
+}
+function abrirCatAcao(i, modo) {
+  const c = S.listas.cats[i]; if (!c || CATS_SISTEMA.includes(c)) return;
+  const usos = S.lanc.filter(l => l.cat === c).length, destinos = S.listas.cats.filter(x => x !== c && !CATS_SISTEMA.includes(x));
+  if (modo === 'excluir' && S.metas.some(m => m.tipo === 'Teto de gastos' && m.cat === c)) return alert('Há uma meta de teto de gastos usando "' + c + '". Exclua ou altere a meta antes.');
+  if (modo === 'excluir' && !usos) { if (!confirm('Excluir "' + c + '"? Ela não tem lançamentos; as regras e o orçamento dela serão removidos.')) return; return excluirCat(c, ''); }
+  $('modal').innerHTML = `<div class="modal" onclick="if(event.target===this)fecharModal()"><div class="caixa"><h2>${modo === 'mesclar' ? 'Mesclar' : 'Excluir'} "${esc(c)}"</h2>
+    <p class="dica">${usos} lançamento(s) e ${S.regras.filter(r => r.cat === c).length} regra(s) usam esta categoria. ${modo === 'mesclar' ? 'Tudo será movido para a categoria escolhida e os orçamentos somados.' : 'Os lançamentos vão para a categoria escolhida; as regras e o orçamento desta categoria são removidos.'}</p>
+    <label>Mover para<select id="catDestino">${destinos.map(d => `<option>${esc(d)}</option>`).join('')}</select></label>
+    <div class="linha-bts"><button class="bt ${modo === 'excluir' ? 'perigo' : ''}" onclick="confirmarCatAcao(${i},'${modo}')">${modo === 'mesclar' ? 'Mesclar' : 'Excluir'}</button><button class="bt sec" onclick="fecharModal()">Cancelar</button></div></div></div>`;
+}
+function confirmarCatAcao(i, modo) {
+  const c = S.listas.cats[i], d = $('catDestino') && $('catDestino').value; if (!c || !d) return;
+  fecharModal(); if (modo === 'mesclar') { trocarCat(c, d); dedupeCats(); salvar(); render(); toast('Categorias mescladas'); } else excluirCat(c, d);
+}
+function excluirCat(c, destino) {
+  if (destino) S.lanc.forEach(l => { if (l.cat === c) l.cat = destino; });
+  ['agenda', 'receitas', 'descontos', 'emprestimos'].forEach(k => (S[k] || []).forEach(it => { if (it && it.cat === c) it.cat = destino || ''; }));
+  S.regras = S.regras.filter(r => r.cat !== c); S.orc = S.orc.filter(o => o.cat !== c);
+  S.listas.cats = S.listas.cats.filter(x => x !== c); S.gastoCats = S.gastoCats.filter(x => x !== c);
+  salvar(); render(); toast('Categoria excluída');
+}
+function orcCat(i, v) { const c = S.listas.cats[i]; if (c) setOrc(c, v); }
+function alternarGastoCat(i) {
+  const c = S.listas.cats[i], g = catsGasto().slice(), k = g.indexOf(c);
+  if (k >= 0) { if (g.length === 1) return alert('Deixe pelo menos uma categoria contando como gasto.'); g.splice(k, 1); } else g.push(c);
+  S.gastoCats = g; salvar(); render();
+}
+function cardCategorias() {
+  const gc = new Set(catsGasto());
+  const linhas = S.listas.cats.map((c, i) => {
+    const sis = CATS_SISTEMA.includes(c), n = S.lanc.filter(l => l.cat === c).length, orc = num((S.orc.find(o => o.cat === c) || {}).valor);
+    return `<tr><td>${esc(c)}${sis ? ' <span class="tag Manter" title="Usada em cálculos do app">sistema</span>' : ''}</td><td class="n">${n}</td><td class="n">${brl(mediaAnterior(c))}</td>
+      <td><input type="number" step="any" min="0" style="width:96px" value="${orc || ''}" placeholder="—" onchange="orcCat(${i},this.value)"></td><td class="n">${S.regras.filter(r => r.cat === c).length}</td>
+      <td><input type="checkbox" ${gc.has(c) ? 'checked' : ''} aria-label="Conta como gasto" onchange="alternarGastoCat(${i})"></td>
+      <td>${sis ? '' : `<button class="mini" onclick="renomearCatUI(${i})">Renomear</button> <button class="mini" onclick="abrirCatAcao(${i},'mesclar')">Mesclar</button> <button class="mini" aria-label="Excluir" onclick="abrirCatAcao(${i},'excluir')">✕</button>`}</td></tr>`;
+  }).join('');
+  return `<h2>Categorias</h2><div class="card"><p class="dica">Gerencie suas categorias: renomear e mesclar atualizam lançamentos, regras e orçamentos juntos. "Conta como gasto" define o que entra nos gráficos de gastos e na previsão.</p>
+    <div class="linha-bts"><button class="bt" onclick="abrirConjunto()">Adicionar conjunto sugerido</button><button class="bt sec" onclick="sugerirOrcamentos()">Sugerir orçamentos</button></div>
+    <div class="rolar" style="margin-top:10px"><table class="tabela"><tr><th>Categoria</th><th class="n">Lanç.</th><th class="n">Média/mês</th><th>Orçamento</th><th class="n">Regras</th><th>Gasto?</th><th></th></tr>${linhas || '<tr><td colspan="7">Nenhuma categoria ainda.</td></tr>'}</table></div>
+    <div class="linha-bts" style="align-items:flex-end"><label style="flex:1;min-width:180px">Nova categoria<input id="novaCatNome" maxlength="40" placeholder="Ex.: Pets" onkeydown="if(event.key==='Enter'){event.preventDefault();novaCat()}"></label><button class="bt sec" onclick="novaCat()">Criar</button></div></div>`;
+}
+
 // ---------- CONFIGURAÇÕES ----------
 function telaConfig() {
   const campo = (rot, obj, k, tipo = 'number') => `<div><label>${rot}<input type="${tipo}" step="any" value="${esc(S[obj][k] ?? '')}" onchange="S.${obj}.${k}=${tipo === 'number' ? 'numOuVazio(this.value)' : 'this.value'};salvar();render()"></label></div>`;
@@ -2093,12 +2225,13 @@ function telaConfig() {
   <div style="display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
     ${campo('Mês inicial (vazio = mês atual)', 'pj', 'mesInicial', 'date')}${campo('Saldo inicial', 'pj', 'saldo')}${campo('Receita líquida mensal', 'pj', 'receita')}${campo('Gasto mensal', 'pj', 'gasto')}${campo('Parcelas por mês', 'pj', 'parcelas')}${campo('Fatura por mês', 'pj', 'fatura')}
   </div></div>
+  ${cardCategorias()}
   <h2>Regras de categoria</h2>
   <p class="dica">Se a descrição contém a palavra-chave, a categoria é preenchida sozinha. Vale a ÚLTIMA regra encontrada (as de baixo têm prioridade).</p>
   ${editor('regras', [['k', 'Palavra-chave', 't'], ['cat', 'Categoria', S.listas.cats], ['tipo', 'Tipo', S.listas.tipos]])}
   <h2>Listas</h2>
   <div class="card"><div style="display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
-    ${[['cats', 'Categorias'], ['contas', 'Contas (inclua o cartão)'], ['meios', 'Meios de pagamento'], ['tipos', 'Tipos de lançamento']].map(([k, r]) => `<div><label>${r} (uma por linha)<textarea onchange="S.listas.${k}=this.value.split('\\n').map(s=>s.trim()).filter(Boolean);salvar();render()">${esc(S.listas[k].join('\n'))}</textarea></label></div>`).join('')}
+    ${[['contas', 'Contas (inclua o cartão)'], ['meios', 'Meios de pagamento'], ['tipos', 'Tipos de lançamento']].map(([k, r]) => `<div><label>${r} (uma por linha)<textarea onchange="S.listas.${k}=this.value.split('\\n').map(s=>s.trim()).filter(Boolean);salvar();render()">${esc(S.listas[k].join('\n'))}</textarea></label></div>`).join('')}
   </div></div>
   ${cardSync()}
   <h2>Backup</h2>
